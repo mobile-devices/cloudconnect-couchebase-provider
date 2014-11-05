@@ -1,6 +1,5 @@
 ﻿using Couchbase;
-using Couchbase.Operations;
-using Enyim.Caching.Memcached;
+using Couchbase.Views;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
 using System;
@@ -12,12 +11,14 @@ namespace CloudConnect.CouchBaseProvider
 {
     public abstract class RepositoryBase<T> where T : ModelBase
     {
-      //  protected string _bucket = "";
+        protected Cluster _cluster;
+        protected string _bucketName;
 
-        protected static CouchbaseClient _Client { get; set; }
-        static RepositoryBase()
+        protected RepositoryBase(Cluster cluster, string bucketName)
         {
-            _Client = new CouchbaseClient();
+            _cluster = cluster;
+            _bucketName = bucketName;
+            _designDoc = typeof(T).Name.ToLower().InflectTo().Pluralized;
         }
 
         protected virtual string BuildKey(T model)
@@ -29,97 +30,102 @@ namespace CloudConnect.CouchBaseProvider
             return model.Id.InflectTo().Underscored;
         }
 
-        private readonly string _designDoc;
-        public RepositoryBase()
+        protected readonly string _designDoc;
+
+        public virtual List<T> GetAll(int limit = 0)
         {
-            _designDoc = typeof(T).Name.ToLower().InflectTo().Pluralized;
+            return this.GetViewResult<T>("all");
         }
 
-        protected IView<T> GetView(string name, bool isProjection = false)
+        public virtual List<T> GetViewResult<T>(string viewName, string startKey = null, string endKey = null, int limit = 0, bool allowStale = false)
         {
-            return _Client.GetView<T>(_designDoc, name, !isProjection);
+            List<T> finalResult = new List<T>();
+
+            using (var bucket = _cluster.OpenBucket(_bucketName))
+            {
+                var query = bucket.CreateQuery(_designDoc, viewName, false);
+                if (limit > 0) query = query.Limit(limit);
+                if (!allowStale) query = query.Stale(Couchbase.Views.StaleState.False);
+                if (!string.IsNullOrEmpty(startKey)) query = query.StartKey(startKey);
+                if (!string.IsNullOrEmpty(endKey)) query = query.EndKey(endKey);
+
+                var result = bucket.Query<dynamic>(query);
+                foreach (var row in result.Rows)
+                {
+                    finalResult.Add(JsonConvert.DeserializeObject<T>(row["value"].ToString()));
+                }
+
+            }
+            return finalResult;
         }
 
-        protected IView<IViewRow> GetViewRaw(string name)
+        public virtual bool Create(T value, PersistTo persist = PersistTo.Zero)
         {
-            return _Client.GetView(_designDoc, name);
+            using (var bucket = _cluster.OpenBucket(_bucketName))
+            {
+                string key = BuildKey(value);
+                value.Id = key;
+                var result = bucket.Upsert<T>(key, value, ReplicateTo.Zero, persist);
+
+                if (result.Exception != null) throw result.Exception;
+                return result.Success;
+            }
         }
 
-        public virtual IEnumerable<T> GetAll(int limit = 0)
+        public virtual bool CreateWithExpireTime(T value, uint ttl, PersistTo persist = PersistTo.Zero)
         {
-            var view = _Client.GetView<T>(_designDoc, "all", true);
-            if (limit > 0) view.Limit(limit);
-            return view;
+            using (var bucket = _cluster.OpenBucket(_bucketName))
+            {
+                string key = BuildKey(value);
+                value.Id = key;
+                var result = bucket.Upsert<T>(key, value, ttl, ReplicateTo.Zero, persist);
+                if (result.Exception != null) throw result.Exception;
+                return result.Success;
+            }
         }
 
-        public virtual int Create(T value, PersistTo persistTo = PersistTo.Zero)
+        public virtual bool Update(T value, PersistTo persist = PersistTo.Zero)
         {
-            var result = _Client.ExecuteStore(StoreMode.Add, BuildKey(value), serializeAndIgnoreId(value), persistTo);
-            if (result.Exception != null) throw result.Exception;
-            return result.StatusCode.Value;
+            using (var bucket = _cluster.OpenBucket(_bucketName))
+            {
+                var result = bucket.Upsert<T>(value.Id, value, ReplicateTo.Zero, persist);
+
+                if (result.Exception != null) throw result.Exception;
+                return result.Success;
+            }
         }
 
-        public virtual int CreateWithExpireTime(T value, DateTime expireAt, PersistTo persistTo = PersistTo.Zero)
-        {
-            var result = _Client.ExecuteStore(StoreMode.Add, BuildKey(value), serializeAndIgnoreId(value), expireAt, persistTo);
-            if (result.Exception != null) throw result.Exception;
-            return result.StatusCode.Value;
-        }
-
-        public virtual int Update(T value, PersistTo persistTo = PersistTo.Zero)
-        {
-            var result = _Client.ExecuteStore(StoreMode.Replace, value.Id, serializeAndIgnoreId(value), persistTo);
-            if (result.Exception != null) throw result.Exception;
-            return result.StatusCode.Value;
-        }
-
-        public virtual int Save(T value, PersistTo persistTo = PersistTo.Zero)
+        public virtual bool Save(T value, PersistTo persist = PersistTo.Zero)
         {
             var key = string.IsNullOrEmpty(value.Id) ? BuildKey(value) : value.Id;
-            var result = _Client.ExecuteStore(StoreMode.Set, key, serializeAndIgnoreId(value), persistTo);
-            if (result.Exception != null) throw result.Exception;
-            return result.StatusCode.Value;
+            using (var bucket = _cluster.OpenBucket(_bucketName))
+            {
+                var result = bucket.Replace<T>(key, value, ReplicateTo.Zero, persist);
+
+                if (result.Exception != null) throw result.Exception;
+                return result.Success;
+            }
         }
 
         public virtual T Get(string key)
         {
-            var result = _Client.ExecuteGet<string>(key);
-            if (result.Exception != null) throw result.Exception;
-
-            if (result.Value == null)
+            using (var bucket = _cluster.OpenBucket(_bucketName))
             {
+                var result = bucket.GetDocument<T>(key);
+                if (result.Success)
+                {
+                    return result.Value;
+                }
                 return null;
             }
-
-            var model = JsonConvert.DeserializeObject<T>(result.Value);
-            model.Id = key; //Id is not serialized into the JSON document on store, so need to set it before returning
-            return model;
         }
 
-        public virtual int Delete(string key, PersistTo persistTo = PersistTo.Zero)
+        public virtual bool Delete(string key, PersistTo persist = PersistTo.Zero)
         {
-            var result = _Client.ExecuteRemove(key, persistTo);
-            if (result.Exception != null) throw result.Exception;
-            return result.StatusCode.HasValue ? result.StatusCode.Value : 0;
-        }
-
-
-
-        private string serializeAndIgnoreId(T obj)
-        {
-            var json = JsonConvert.SerializeObject(obj,
-                new JsonSerializerSettings()
-                {
-                    ContractResolver = new DocumentIdContractResolver(),
-                });
-            return json;
-        }
-
-        private class DocumentIdContractResolver : CamelCasePropertyNamesContractResolver
-        {
-            protected override List<MemberInfo> GetSerializableMembers(Type objectType)
+            using (var bucket = _cluster.OpenBucket(_bucketName))
             {
-                return base.GetSerializableMembers(objectType).Where(o => o.Name != "Id").ToList();
+                var result = bucket.Remove(key, ReplicateTo.Zero, persist);
+                return result.Success;
             }
         }
     }

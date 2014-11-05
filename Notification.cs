@@ -1,5 +1,4 @@
-﻿using CouchbaseModelViews.Framework.Attributes;
-using Newtonsoft.Json;
+﻿using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -8,8 +7,6 @@ using System.Threading.Tasks;
 
 namespace CloudConnect.CouchBaseProvider
 {
-    [CouchbaseDesignDoc("notification")]
-    [CouchbaseAllView]
     public class Notification : ModelBase
     {
         [JsonProperty("created_at")]
@@ -17,13 +14,11 @@ namespace CloudConnect.CouchBaseProvider
         [JsonProperty("received_at")]
         public long Received_at { get; set; }
 
-        [CouchbaseViewKey("all_by_key_and_dropped", "key")]
         [JsonProperty("key")]
         public string Key { get; set; }
         [JsonProperty("data")]
         public string Data { get; set; }
 
-        [CouchbaseViewKey("by_dropped", "dropped")]
         [JsonProperty("dropped")]
         public bool Dropped { get; set; }
 
