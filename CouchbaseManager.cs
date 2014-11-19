@@ -40,6 +40,7 @@ namespace CloudConnect.CouchBaseProvider
             _notificationRepository = new NotificationRepository(_cluster, bucketName);
             _deviceRepository = new DeviceRepository(_cluster, bucketName);
             _trackRepository = new TrackRepository(_cluster, bucketName);
+            _fieldDefinitionRepository = new FieldDefinitionRepository(_cluster, bucketName);
         }
 
         private NotificationRepository _notificationRepository;
@@ -60,12 +61,10 @@ namespace CloudConnect.CouchBaseProvider
             get { return _trackRepository; }
         }
 
-        public  IDictionary<string, IOperationResult<dynamic>> BulkInsert(string bucketName, Dictionary<string, dynamic> items)
+        private FieldDefinitionRepository _fieldDefinitionRepository;
+        public FieldDefinitionRepository FieldDefinitionRepository
         {
-               using (var bucket = _cluster.OpenBucket(bucketName))
-               {
-                  return bucket.Upsert(items);         
-              }
+            get { return _fieldDefinitionRepository; }
         }
     }
 

@@ -54,6 +54,9 @@
   <ItemGroup>
     <Compile Include="CouchbaseManager.cs" />
     <Compile Include="Device.cs" />
+    <Compile Include="FieldDefinition.cs" />
+    <Compile Include="FieldDefinitionRepository.cs" />
+    <Compile Include="GuidGenerator.cs" />
     <Compile Include="Properties\Resources.Designer.cs">
       <AutoGen>True</AutoGen>
       <DesignTime>True</DesignTime>
@@ -75,10 +78,14 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="Views\devices\all.js" />
+    <Content Include="Views\field_definition\all.js" />
+    <Content Include="Views\notifications\stack_size.js" />
     <Content Include="Views\notifications\all.js" />
+    <Content Include="Views\tracks\stack_size_by_asset.js" />
+    <Content Include="Views\tracks\all_by_status.js" />
     <Content Include="Views\tracks\all_by_imei_and_date_key.js" />
-    <Content Include="Views\notifications\by_dropped.js" />
-    <Content Include="Views\notifications\by_key_and_dropped.js" />
+    <Content Include="Views\notifications\by_status.js" />
+    <Content Include="Views\notifications\by_key_and_status.js" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Properties\Resources.resx">
@@ -87,6 +94,10 @@
     </EmbeddedResource>
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\cloudconnect_dotnet_client\MD.CloudConnect.csproj">
+      <Project>{a3fe3d46-a1cb-4eee-8c25-b7a4b5bff1f6}</Project>
+      <Name>MD.CloudConnect</Name>
+    </ProjectReference>
     <ProjectReference Include="..\Couchbase\Couchbase.csproj">
       <Project>{244eb9c8-8bcb-421d-a6dc-d54dceb206e8}</Project>
       <Name>Couchbase</Name>
