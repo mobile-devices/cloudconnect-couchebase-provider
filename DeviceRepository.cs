@@ -4,12 +4,11 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 
-namespace CloudConnect.CouchBaseProvider
+namespace MD.CloudConnect.CouchBaseProvider
 {
     public class DeviceRepository : RepositoryBase<Device>
     {
-        public DeviceRepository(Cluster cluster, string bucketName) : base(cluster, bucketName) { } 
-
+  
         public void SaveDevice(Device d)
         {
             this.Create(d);

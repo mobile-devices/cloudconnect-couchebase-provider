@@ -3,21 +3,23 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using Couchbase.Operations;
+using Enyim.Caching.Memcached.Results;
 
-namespace CloudConnect.CouchBaseProvider
+namespace MD.CloudConnect.CouchBaseProvider
 {
     public class TrackRepository : RepositoryBase<Track>
     {
-        public TrackRepository(Cluster cluster, string bucketName) : base(cluster, bucketName) { }
+        //public TrackRepository(CouchbaseClient cluster) : base(cluster) { }
 
-        public List<Track> GetAllByKeyAndStatusOk(string startKey = null, string endKey = null,
+        public List<Track> GetAllByKeyAndStatusOk(object[] startKey = null, object[] endKey = null,
             int limit = 1000, bool allowStale = false, bool inclusiveEnd = false, string startKeyDocId = null)
         {
-            return GetViewResult<Track>("all_by_imei_and_date_key", startKey, endKey, limit, allowStale
+            return GetViewResult("all_by_imei_and_date_key", startKey, endKey, limit, allowStale
                 , inclusiveEnd: inclusiveEnd, startKeyDocId: startKeyDocId);
         }
 
-        public bool CreateTrack(Track data, uint expiration = 2592000, PersistTo persist = PersistTo.Zero)
+        public bool CreateTrack(Track data, int expiration = 2592000, PersistTo persist = PersistTo.Zero)
         {
             DateTime created = DateTime.UtcNow;
             data.Created_at = created;
@@ -27,23 +29,23 @@ namespace CloudConnect.CouchBaseProvider
 
         public List<Track> GetData(string imei, int datekey, string startDocId = null, bool allowStale = false)
         {
-            string key = String.Format("[\"{0}\",{1}]", imei, datekey);
-            return GetAllByKeyAndStatusOk(key, key, 1000, allowStale, true, startDocId);
+            //string key = String.Format("[\"{0}\",{1}]", imei, datekey);
+            return GetAllByKeyAndStatusOk(new object[] { imei, datekey }, new object[] { imei, datekey }, 1000, allowStale, true, startDocId);
         }
 
         public List<Track> GetNotDecodedTrack(int limit = 1000, bool stale = false, string startKeyDocId = "")
         {
-            return GetViewResult<Track>("all_by_status", "0", "0", limit, stale, true, startKeyDocId);
+            return GetViewResult("all_by_status", new object[] { 0 }, new object[] { 0 }, limit, stale, true, startKeyDocId);
         }
 
-        public int SizeOfCache(string asset)
-        {
-            List<int> result = GetViewResult<int>("stack_size_by_asset", asset, asset, 1, false, true);
-            if (result.Count == 0)
-                return 0;
-            else
-                return result.First<int>();
-        }
+        //public int SizeOfCache(string asset)
+        //{
+        //    List<int> result = GetViewResult<int>("stack_size_by_asset", new object[] { asset }, new object[] { asset }, 1, false, true);
+        //    if (result.Count == 0)
+        //        return 0;
+        //    else
+        //        return result.First<int>();
+        //}
 
         public bool BulkUpsert(List<Track> data, uint expiration = 2592000)
         {
@@ -62,10 +64,10 @@ namespace CloudConnect.CouchBaseProvider
                 items.Add(t.Id, t);
             }
 
-            IDictionary<string, IOperationResult<Track>> result = BulkUpsert(items, expiration);
-            foreach (KeyValuePair<string, IOperationResult<Track>> item in result)
+            IDictionary<string, IStoreOperationResult> result = BulkUpsert(items, expiration);
+            foreach (KeyValuePair<string, IStoreOperationResult> item in result)
             {
-                if (!item.Value.Success)
+                if (!item.Value.Success)// && (item.Value.StatusCode != 2 || item.Value.StatusCode != 1))
                 {
                     int index = 0;
                     while (index < 3)

@@ -4,14 +4,16 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Couchbase;
+using Couchbase.Operations;
+using Enyim.Caching.Memcached.Results;
 
-namespace CloudConnect.CouchBaseProvider
+namespace MD.CloudConnect.CouchBaseProvider
 {
     public class NotificationRepository : RepositoryBase<Notification>
     {
-        public NotificationRepository(Cluster cluster, string bucketName) : base(cluster, bucketName) { }
+        // public NotificationRepository(CouchbaseClient cluster) : base(cluster) { }
 
-        public bool PushNotificationCache(string key, string data, DateTime recorded_date, int index = 0, uint expiration = 86400, PersistTo persist = PersistTo.Zero)
+        public bool PushNotificationCache(string key, string data, DateTime recorded_date, int index = 0, int expiration = 86400, PersistTo persist = PersistTo.Zero)
         {
             Notification notif = new Notification()
             {
@@ -25,19 +27,19 @@ namespace CloudConnect.CouchBaseProvider
             return this.CreateWithExpireTime(notif, expiration, persist);
         }
 
-        public List<Notification> GetAllByStatus(string startKey = null, string endKey = null, int limit = 0, bool allowStale = false)
+        public List<Notification> GetAllByStatus(object[] startKey = null, object[] endKey = null, int limit = 0, bool allowStale = false)
         {
-            return GetViewResult<Notification>("by_status", startKey, endKey, limit, allowStale, inclusiveEnd: true);
+            return GetViewResult("by_status", startKey, endKey, limit, allowStale, inclusiveEnd: true);
         }
 
-        public List<Notification> GetAllByKeyAndStatus(string startKey = null, int limit = 0, bool allowStale = false, string startDocID = null)
+        public List<Notification> GetAllByKeyAndStatus(object[] startKey = null, int limit = 0, bool allowStale = false, string startDocID = null)
         {
-            return GetViewResult<Notification>("by_key_and_status", startKey, startKey, limit, allowStale, inclusiveEnd: true, startKeyDocId: startDocID);
+            return GetViewResult("by_key_and_status", startKey, startKey, limit, allowStale, inclusiveEnd: true, startKeyDocId: startDocID);
         }
 
         public List<Notification> RequestNotificationCache(string key, int limit = 5000, bool slate = false, string startDocId = null)
         {
-            List<Notification> result = GetAllByKeyAndStatus(String.Format("[\"{0}\", 0]", key), limit, slate, startDocId);
+            List<Notification> result = GetAllByKeyAndStatus(new object[] { key , 0 }, limit, slate, startDocId);
             if (result.Count > 0)
             {
                 return result.OrderBy(x => x.Received_at).ToList();
@@ -46,14 +48,14 @@ namespace CloudConnect.CouchBaseProvider
                 return new List<Notification>();
         }
 
-        public int SizeOfCache()
-        {
-            List<int> result = GetViewResult<int>("stack_size");
-            if (result.Count == 0)
-                return 0;
-            else
-                return result.First<int>();
-        }
+        //public int SizeOfCache()
+        //{
+        //    List<int> result = GetViewResult<int>("stack_size");
+        //    if (result.Count == 0)
+        //        return 0;
+        //    else
+        //        return result.First<int>();
+        //}
 
         public bool BulkUpsert(List<Notification> data, uint expiration = 86400)
         {
@@ -64,8 +66,8 @@ namespace CloudConnect.CouchBaseProvider
                     notif.Id = this.BuildKey(notif);
                 items.Add(notif.Id, notif);
             }
-            IDictionary<string, IOperationResult<Notification>> result = BulkUpsert(items, expiration);
-            foreach (KeyValuePair<string, IOperationResult<Notification>> item in result)
+            IDictionary<string, IStoreOperationResult> result = BulkUpsert(items, expiration);
+            foreach (KeyValuePair<string, IStoreOperationResult> item in result)
             {
                 if (!item.Value.Success)
                 {
@@ -74,7 +76,7 @@ namespace CloudConnect.CouchBaseProvider
                     {
                         try
                         {
-                            if (Save(item.Value.Value))
+                            if (Save(items[item.Key]))
                                 break;
                         }
                         catch (Exception ex) { Console.WriteLine(ex.Message); }

@@ -8,7 +8,7 @@
 // </auto-generated>
 //------------------------------------------------------------------------------
 
-namespace CloudConnect.CouchBaseProvider.Properties {
+namespace MD.CloudConnect.CouchBaseProvider {
     using System;
     
     

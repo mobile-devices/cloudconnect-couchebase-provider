@@ -5,11 +5,11 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace CloudConnect.CouchBaseProvider
+namespace MD.CloudConnect.CouchBaseProvider
 {
     public class FieldDefinitionRepository : RepositoryBase<FieldDefinition>
     {
-        public FieldDefinitionRepository(Cluster cluster, string bucketName) : base(cluster, bucketName) { }
+        // public FieldDefinitionRepository(CouchbaseClient cluster) : base(cluster) { }
 
         public bool BulkUpsert(List<FieldDefinition> data)
         {
@@ -38,15 +38,19 @@ namespace CloudConnect.CouchBaseProvider
             do
             {
                 cache = GetAll(limit, docid, true);
-                if (!String.IsNullOrEmpty(docid))
+                if (cache.Count > 0)
                 {
-                    docid = cache.Last().Id;
-                    cache.RemoveAt(cache.Count - 1);
+                    if (!String.IsNullOrEmpty(docid))
+                    {
+                        docid = cache.Last().Id;
+                        cache.RemoveAt(cache.Count - 1);
+                    }
+                    else
+                        docid = cache.First().Id;
+                    result.AddRange(cache);
                 }
-                else
-                    docid = cache.First().Id;
-                result.AddRange(cache);
-            } while (cache.Count >= limit);
+
+            } while (cache.Count >= limit - 1);
 
             if (result.Count > 0)
             {

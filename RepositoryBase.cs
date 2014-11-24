@@ -1,5 +1,4 @@
 ﻿using Couchbase;
-using Couchbase.Views;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
 using System;
@@ -7,18 +6,23 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using Couchbase.Operations;
+using Enyim.Caching.Memcached;
+using Enyim.Caching.Memcached.Results;
+using System.Threading.Tasks;
+using System.Collections.Concurrent;
 
-namespace CloudConnect.CouchBaseProvider
+
+namespace MD.CloudConnect.CouchBaseProvider
 {
     public abstract class RepositoryBase<T> where T : ModelBase
     {
-        protected Cluster _cluster;
-        protected string _bucketName;
+        protected static CouchbaseClient _cluster { get; set; }
+        protected readonly string _designDoc;
 
-        protected RepositoryBase(Cluster cluster, string bucketName)
+        public RepositoryBase()
         {
-            _cluster = cluster;
-            _bucketName = bucketName;
+            _cluster = new CouchbaseClient();
             _designDoc = typeof(T).Name.ToLower().InflectTo().Pluralized;
         }
 
@@ -31,257 +35,155 @@ namespace CloudConnect.CouchBaseProvider
             return model.Id.InflectTo().Underscored;
         }
 
-        protected readonly string _designDoc;
-
-
-        public IDictionary<string, IOperationResult<T>> BulkUpsert(IDictionary<string, T> items, uint expiration = 0)
+        private string serializeAndIgnoreId(T obj)
         {
-            using (var bucket = _cluster.OpenBucket(_bucketName))
+            var json = JsonConvert.SerializeObject(obj, new JsonSerializerSettings()
             {
-                return bucket.Upsert(items, expiration);
+                ContractResolver = new DocumentIdContractResolver(),
+            });
+            return json;
+        }
+
+        private class DocumentIdContractResolver : CamelCasePropertyNamesContractResolver
+        {
+            protected override List<MemberInfo> GetSerializableMembers(Type objectType)
+            {
+                return base.GetSerializableMembers(objectType).Where(o => o.Name != "Id").ToList();
             }
+        }
+
+        public IDictionary<string, IStoreOperationResult> BulkUpsert(IDictionary<string, T> items, uint expiration = 0, bool createOnly = false)
+        {
+            ConcurrentDictionary<string, IStoreOperationResult> result = new ConcurrentDictionary<string, IStoreOperationResult>();
+            Parallel.ForEach(items, x =>
+            {
+                if (createOnly)
+                    result.TryAdd(x.Key, _cluster.ExecuteStore(StoreMode.Add, BuildKey(x.Value), serializeAndIgnoreId(x.Value), new TimeSpan(0, 0, (int)expiration)));
+                else
+                    result.TryAdd(x.Key, _cluster.ExecuteStore(StoreMode.Set, BuildKey(x.Value), serializeAndIgnoreId(x.Value), new TimeSpan(0, 0, (int)expiration)));
+            });
+            return result;
         }
 
         public virtual List<T> GetAll(int limit = 1000, string startKeyDocId = null, bool allowStale = false)
         {
-            return this.GetViewResult<T>("all", limit: limit, startKeyDocId: startKeyDocId, allowStale: allowStale);
+            return GetViewResult("all", limit: limit, startKeyDocId: startKeyDocId, allowStale: allowStale);
         }
 
-        public virtual List<T> GetViewResult<T>(string viewName, string startKey = null, string endKey = null,
-            int limit = 0, bool allowStale = false, bool inclusiveEnd = false, string startKeyDocId = null)
+        public virtual List<T> GetViewResult(string viewName, object[] startKey = null, object[] endKey = null,
+                                                int limit = 0, bool allowStale = false, bool inclusiveEnd = false, string startKeyDocId = null)
         {
-            List<T> finalResult = new List<T>();
-            try
+            var query = _cluster.GetView(_designDoc, viewName, true).WithInclusiveEnd(inclusiveEnd);
+
+            if (limit > 0)
+                query = query.Limit(limit);
+            if (!allowStale)
+                query = query.Stale(StaleMode.False);
+            else
+                query = query.Stale(StaleMode.UpdateAfter);
+            if (startKey != null)
             {
-                using (var bucket = _cluster.OpenBucket(_bucketName))
+                if (startKey.Count() == 1)
+                    query = query.StartKey(startKey.First());
+                else
+                    query = query.StartKey(startKey);
+            }
+            if (endKey != null)
+            {
+                if (endKey.Count() == 1)
+                    query = query.EndKey(endKey.First());
+                else
+                    query = query.EndKey(endKey);
+            }
+            if (!string.IsNullOrEmpty(startKeyDocId))
+                query = query.StartDocumentId(startKeyDocId);
+
+            List<T> docs = new List<T>();
+
+            List<string> keys = query.Select(x => x.ItemId).ToList();
+            ConcurrentDictionary<string, IGetOperationResult<string>> dict = new ConcurrentDictionary<string, IGetOperationResult<string>>();
+            Parallel.ForEach(keys, x =>
+            {
+                dict.TryAdd(x, _cluster.ExecuteGet<string>(x));
+            });
+
+            // re-order data before deserialize
+            Dictionary<string, IGetOperationResult<string>> listOperations = (from d in dict orderby d.Key select d).ToDictionary(x => x.Key, x => x.Value);
+
+            foreach (var item in listOperations)
+            {
+                if (item.Value.Exception != null)
+                    throw item.Value.Exception;
+
+                if (item.Value.Value == null)
                 {
-                    var query = bucket.CreateQuery(_designDoc, viewName, false).InclusiveEnd(inclusiveEnd);
-                    if (limit > 0) query = query.Limit(limit);
-                    if (!allowStale)
-                        query = query.Stale(Couchbase.Views.StaleState.False);
-                    else
-                        query = query.Stale(Couchbase.Views.StaleState.UpdateAfter);
-                    if (!string.IsNullOrEmpty(startKey)) query = query.StartKey(startKey);
-                    if (!string.IsNullOrEmpty(endKey)) query = query.EndKey(endKey);
-                    if (!string.IsNullOrEmpty(startKeyDocId)) query = query.StartKeyDocId(startKeyDocId);
-
-                    IViewResult<dynamic> result = bucket.Query<dynamic>(query);
-                    List<string> docIds = new List<string>();
-                    foreach (var row in result.Rows)
-                    {
-                        //in case of map only value should be null
-                        //value exist for reduce only
-                        if (row.id == null)
-                            finalResult.Add(row.Value<T>("value"));
-                        else
-                            docIds.Add(row.Value<string>("id"));
-                    }
-                    if (docIds.Count > 0)
-                    {
-                        IDictionary<string, IOperationResult<T>> docResult = null;
-                        int retry = 0;
-                        while (retry <= 3)
-                        {
-                            try
-                            {
-                                docResult = bucket.Get<T>((IList<string>)docIds);
-                                break;
-                            }
-                            catch
-                            {
-                                retry++;
-                            }
-                        }
-                        if (docResult.Count() > 0)
-                        {
-                            foreach (KeyValuePair<string, IOperationResult<T>> item in docResult)
-                            {
-                                if (!item.Value.Success || item.Value.Value == null)                                
-                                {
-                                    IOperationResult<T> temp = null;
-                                    while (retry <= 3)
-                                    {
-                                        try
-                                        {
-                                            temp = bucket.Get<T>(item.Key);
-                                            if (temp.Success)
-                                                break;
-                                        }
-                                        catch
-                                        {}
-                                        retry++;
-
-                                    }
-                                    if (retry >= 3)
-                                        return new List<T>();
-                                    docResult[item.Key] = temp;
-                                }
-                            }
-                            finalResult = (from d in docResult orderby d.Key select d.Value.Value).ToList<T>();
-                        }
-
-
-                    }
+                    return new List<T>();
                 }
+                var model = JsonConvert.DeserializeObject<T>(item.Value.Value);
+                model.Id = item.Key;
+                docs.Add(model);
             }
-            catch (Exception ex)
-            { //temporary - some unstable feature with Couchbase .net 2.0 beta
-                _cluster = ClusterHelper.Get();
-                Console.WriteLine("Error: " + ex.Message);
-                return new List<T>();
-            }
-            return finalResult;
+
+            return docs;
         }
 
-        public virtual bool Create(T value, PersistTo persist = PersistTo.Zero)
+        public virtual bool Create(T value, PersistTo persistTo = PersistTo.Zero)
         {
-            using (var bucket = _cluster.OpenBucket(_bucketName))
-            {
-                string key = BuildKey(value);
-                value.Id = key;
-                IOperationResult<T> result = null;
-                int retry = 0;
-                while (retry <= 3)
-                {
-                    try
-                    {
-                        result = bucket.Upsert<T>(key, value, ReplicateTo.Zero, persist);
-                        break;
-                    }
-                    catch
-                    {
-                        retry++;
-                    }
-                }
-
-                if (result.Exception != null) throw result.Exception;
-                return result.Success;
-            }
+            var result = _cluster.ExecuteStore(StoreMode.Add, BuildKey(value), serializeAndIgnoreId(value), persistTo);
+            if (result.Exception != null)
+                throw result.Exception;
+            return result.Success;
         }
 
-        public virtual bool CreateWithExpireTime(T value, uint ttl, PersistTo persist = PersistTo.Zero)
+        public virtual bool CreateWithExpireTime(T value, int ttl, PersistTo persistTo = PersistTo.Zero)
         {
-            using (var bucket = _cluster.OpenBucket(_bucketName))
-            {
-                string key = BuildKey(value);
-                value.Id = key;
-                IOperationResult<T> result = null;
-                int retry = 0;
-                while (retry <= 3)
-                {
-                    try
-                    {
-                        //If zerop we use Upsert without persist to be compatible with memcached bucket
-                        if (persist == PersistTo.Zero)
-                            result = bucket.Upsert<T>(key, value, ttl);
-                        else
-                            result = bucket.Upsert<T>(key, value, ttl, ReplicateTo.Zero, persist);
-                        break;
-                    }
-                    catch
-                    {
-                        retry++;
-                    }
-                }
-                if (result.Exception != null) throw result.Exception;
-                return result.Success;
-            }
+            var result = _cluster.ExecuteStore(StoreMode.Add, BuildKey(value), serializeAndIgnoreId(value), new TimeSpan(0, 0, ttl), persistTo);
+            if (result.Exception != null)
+                throw result.Exception;
+            return result.Success;
         }
 
-        public virtual bool Update(T value, PersistTo persist = PersistTo.Zero)
+        public virtual bool Update(T value, PersistTo persistTo = PersistTo.Zero)
         {
-            using (var bucket = _cluster.OpenBucket(_bucketName))
-            {
-                IOperationResult<T> result = null;
-                int retry = 0;
-                while (retry <= 3)
-                {
-                    try
-                    {
-                        result = bucket.Upsert<T>(value.Id, value, ReplicateTo.Zero, persist);
-                        break;
-                    }
-                    catch
-                    {
-                        retry++;
-                    }
-                }
-                if (result.Exception != null) throw result.Exception;
-                return result.Success;
-            }
+            var result = _cluster.ExecuteStore(StoreMode.Replace, value.Id, serializeAndIgnoreId(value), persistTo);
+            if (result.Exception != null)
+                throw result.Exception;
+            return result.Success;
         }
 
-        public virtual bool Save(T value, PersistTo persist = PersistTo.Zero)
+        public virtual bool Save(T value, PersistTo persistTo = PersistTo.Zero)
         {
             var key = string.IsNullOrEmpty(value.Id) ? BuildKey(value) : value.Id;
-            using (var bucket = _cluster.OpenBucket(_bucketName))
-            {
-                IOperationResult<T> result = null;
-                int retry = 0;
-                while (retry <= 3)
-                {
-                    try
-                    {
-                        result = bucket.Replace<T>(key, value, ReplicateTo.Zero, persist);
-                        break;
-                    }
-                    catch
-                    {
-                        retry++;
-                    }
-                }
-                if (result.Exception != null) throw result.Exception;
-                return result.Success;
-            }
+            var result = _cluster.ExecuteStore(StoreMode.Set, key, serializeAndIgnoreId(value), persistTo);
+            if (result.Exception != null)
+                throw result.Exception;
+            return result.Success;
         }
 
         public virtual T Get(string key)
         {
-            int retry = 0;
+            var result = _cluster.ExecuteGet<string>(key);
+            if (result.Exception != null)
+                throw result.Exception;
 
-            while (retry <= 3)
+            if (result.Value == null)
             {
-                try
-                {
-                    using (var bucket = _cluster.OpenBucket(_bucketName))
-                    {
-                        var result = bucket.GetDocument<T>(key);
-                        if (result.Success)
-                        {
-                            return result.Value;
-                        }
-                        else return null;
-                    }
-                }
-
-                catch
-                {
-                    retry++;
-                }
+                return null;
             }
-            return null;
+
+            var model = JsonConvert.DeserializeObject<T>(result.Value);
+            model.Id = key; //Id is not serialized into the JSON document on store, so need to set it before returning
+            return model;
         }
 
-        public virtual bool Delete(string key, PersistTo persist = PersistTo.Zero)
+        public virtual bool Delete(string key, PersistTo persistTo = PersistTo.Zero)
         {
-            using (var bucket = _cluster.OpenBucket(_bucketName))
-            {
-                IOperationResult result = null;
-                int retry = 0;
-                while (retry <= 3)
-                {
-                    try
-                    {
-                        result = bucket.Remove(key, ReplicateTo.Zero, persist);
-                        break;
-                    }
-                    catch
-                    {
-                        retry++;
-                    }
-                }
-                return result.Success;
-            }
+            var result = _cluster.ExecuteRemove(key, persistTo);
+            if (result.Exception != null)
+                throw result.Exception;
+            return result.Success;
         }
+
+
     }
 }

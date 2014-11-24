@@ -1,5 +1,4 @@
 ﻿using Couchbase;
-using Couchbase.Configuration.Client;
 using System;
 using System.Collections.Generic;
 using System.Configuration;
@@ -8,11 +7,11 @@ using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace CloudConnect.CouchBaseProvider
+namespace MD.CloudConnect.CouchBaseProvider
 {
     public class CouchbaseManager
     {
-        protected static Cluster _cluster = null;
+        protected static CouchbaseClient _cluster = null;
 
         #region singleton
         protected static readonly CouchbaseManager _instance = new CouchbaseManager();
@@ -35,12 +34,11 @@ namespace CloudConnect.CouchBaseProvider
 
         public void RegisterBucketConfiguration(string sectionName, string bucketName)
         {
-            ClusterHelper.Initialize(sectionName);
-            _cluster = ClusterHelper.Get();
-            _notificationRepository = new NotificationRepository(_cluster, bucketName);
-            _deviceRepository = new DeviceRepository(_cluster, bucketName);
-            _trackRepository = new TrackRepository(_cluster, bucketName);
-            _fieldDefinitionRepository = new FieldDefinitionRepository(_cluster, bucketName);
+            //_cluster = new CouchbaseClient();
+            _notificationRepository = new NotificationRepository();
+            _deviceRepository = new DeviceRepository();
+            _trackRepository = new TrackRepository();
+            _fieldDefinitionRepository = new FieldDefinitionRepository();
         }
 
         private NotificationRepository _notificationRepository;
