@@ -27,10 +27,10 @@ namespace MD.CloudConnect.CouchBaseProvider
             return this.CreateWithExpireTime(data, expiration, persist);
         }
 
-        public List<Track> GetData(string imei, int datekey, string startDocId = null, bool allowStale = false)
+        public List<Track> GetData(string imei, int datekey, string startDocId = null, bool allowStale = false, int limit = 1000)
         {
             //string key = String.Format("[\"{0}\",{1}]", imei, datekey);
-            return GetAllByKeyAndStatusOk(new object[] { imei, datekey }, new object[] { imei, datekey }, 1000, allowStale, true, startDocId);
+            return GetAllByKeyAndStatusOk(new object[] { imei, datekey }, new object[] { imei, datekey }, limit, allowStale, true, startDocId);
         }
 
         public List<Track> GetNotDecodedTrack(int limit = 1000, bool stale = false, string startKeyDocId = "")

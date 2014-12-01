@@ -13,7 +13,7 @@ namespace MD.CloudConnect.CouchBaseProvider
     {
         // public NotificationRepository(CouchbaseClient cluster) : base(cluster) { }
 
-        public bool PushNotificationCache(string key, string data, DateTime recorded_date, int index = 0, int expiration = 86400, PersistTo persist = PersistTo.Zero)
+        public bool PushNotificationCache(string key, string data, DateTime recorded_date, int index = 0, int expiration = 604800, PersistTo persist = PersistTo.Zero)
         {
             Notification notif = new Notification()
             {

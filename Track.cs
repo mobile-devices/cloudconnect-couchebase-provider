@@ -32,8 +32,8 @@ namespace MD.CloudConnect.CouchBaseProvider
         /// <summary>
         /// 0 : not rebuild
         /// 1 : rebuild and ok
-        /// 2 : rebuild (duplicate)
-        /// 3 : rebuild (timeout)
+        /// 2 : rebuild (timeout)
+        /// 3 : rebuild (duplicate)
         /// 4 : rebuild (feed)
         /// </summary>
         [JsonProperty("status")]
@@ -48,11 +48,17 @@ namespace MD.CloudConnect.CouchBaseProvider
         [JsonProperty("created_at")]
         public DateTime Created_at { get; set; }
 
+        [JsonProperty("updated_at")]
+        public DateTime Updated_at { get; set; }
+
         [JsonProperty("connection_id")]
         public string ConnectionId { get; set; }
 
         [JsonProperty("index")]
         public uint? Index { get; set; }
+
+        [JsonProperty("next_wainting_index")]
+        public uint? NextWaitingIndex { get; set; }
 
         [JsonProperty("internal_index")]
         public int InternalIndex { get; set; }
