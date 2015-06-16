@@ -32,20 +32,20 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="Couchbase, Version=1.3.10.0, Culture=neutral, PublicKeyToken=05e9c6b5a9ec94c2, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\cloudconnect_dotnet_client\packages\CouchbaseNetClient.1.3.10\lib\net40\Couchbase.dll</HintPath>
+    <Reference Include="Couchbase">
+      <HintPath>..\cloudconnect_dotnet_client\packages\CouchbaseNetClient.1.3.12\lib\net40\Couchbase.dll</HintPath>
     </Reference>
-    <Reference Include="Enyim.Caching, Version=1.3.10.0, Culture=neutral, PublicKeyToken=05e9c6b5a9ec94c2, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\cloudconnect_dotnet_client\packages\CouchbaseNetClient.1.3.10\lib\net40\Enyim.Caching.dll</HintPath>
+    <Reference Include="Enyim.Caching">
+      <HintPath>..\cloudconnect_dotnet_client\packages\CouchbaseNetClient.1.3.12\lib\net40\Enyim.Caching.dll</HintPath>
     </Reference>
     <Reference Include="inflector_extension">
       <HintPath>..\cloudconnect_dotnet_client\packages\inflector_extension.0.0.8\lib\Net40\inflector_extension.dll</HintPath>
     </Reference>
-    <Reference Include="Newtonsoft.Json, Version=6.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\cloudconnect_dotnet_client\packages\Newtonsoft.Json.6.0.6\lib\net45\Newtonsoft.Json.dll</HintPath>
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>..\cloudconnect_dotnet_client\packages\Newtonsoft.Json.6.0.8\lib\net45\Newtonsoft.Json.dll</HintPath>
+    </Reference>
+    <Reference Include="StackExchange.Redis">
+      <HintPath>..\cloudconnect_dotnet_client\packages\StackExchange.Redis.1.0.450\lib\net45\StackExchange.Redis.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Configuration" />
@@ -58,6 +58,8 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="CouchbaseManager.cs" />
+    <Compile Include="DataList.cs" />
+    <Compile Include="DataListRepository.cs" />
     <Compile Include="Device.cs" />
     <Compile Include="FieldDefinition.cs" />
     <Compile Include="FieldDefinitionRepository.cs" />
@@ -85,6 +87,7 @@
     <Content Include="Views\field_definition\all.js" />
     <Content Include="Views\notifications\stack_size.js" />
     <Content Include="Views\notifications\all.js" />
+    <Content Include="Views\stat track\stats.js" />
     <Content Include="Views\tracks\stack_size_by_asset.js" />
     <Content Include="Views\tracks\all_by_status.js" />
     <Content Include="Views\tracks\all_by_imei_and_date_key.js" />

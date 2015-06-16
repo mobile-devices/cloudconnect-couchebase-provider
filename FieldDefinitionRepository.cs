@@ -14,13 +14,21 @@ namespace MD.CloudConnect.CouchBaseProvider
         public bool BulkUpsert(List<FieldDefinition> data)
         {
             IDictionary<string, FieldDefinition> items = new Dictionary<string, FieldDefinition>();
+            List<string> added = new List<string>();
             foreach (FieldDefinition d in data)
             {
                 if (String.IsNullOrEmpty(d.Id))
+                {
                     d.Id = this.BuildKey(d);
+                }
+                added.Add(d.Id);
                 items.Add(d.Id, d);
             }
             BulkUpsert(items);
+            if (added.Count > 0)
+            {
+                CouchbaseManager.Instance.DataListRepository.PushToList("field_definition", added);
+            }
             return true;
         }
 
@@ -31,31 +39,33 @@ namespace MD.CloudConnect.CouchBaseProvider
 
         public List<FieldDefinition> GetAllSortedFieldDefinition()
         {
-            List<FieldDefinition> result = new List<FieldDefinition>();
-            List<FieldDefinition> cache = new List<FieldDefinition>();
             int limit = 1000;
-            string docid = "";
+
+            List<FieldDefinition> result = new List<FieldDefinition>();
+            List<FieldDefinition> tmp = new List<FieldDefinition>();
+            uint id_page = 0;
+            List<DataList> pages = new List<DataList>();
+            DataList page = null;
             do
             {
-                cache = GetAll(limit, docid, true);
-                if (cache.Count > 0)
+                page = CouchbaseManager.Instance.DataListRepository.GetPage("field_definition", id_page);
+                if (page != null)
                 {
-                    if (!String.IsNullOrEmpty(docid))
+                    tmp = CouchbaseManager.Instance.FieldDefinitionRepository.GetDocs(page.Keys);
+                    if (tmp.Count > 0)
                     {
-                        docid = cache.Last().Id;
-                        cache.RemoveAt(cache.Count - 1);
+                        pages.Add(page);
+                        result.AddRange(tmp);
                     }
-                    else
-                        docid = cache.First().Id;
-                    result.AddRange(cache);
                 }
-
-            } while (cache.Count >= limit - 1);
+                id_page++;
+            } while (result.Count < limit && page != null);
 
             if (result.Count > 0)
             {
                 result = result.OrderBy(x => x.SortId).ToList();
             }
+
             return result;
         }
     }

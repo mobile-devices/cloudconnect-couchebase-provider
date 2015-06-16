@@ -11,6 +11,7 @@ using Enyim.Caching.Memcached;
 using Enyim.Caching.Memcached.Results;
 using System.Threading.Tasks;
 using System.Collections.Concurrent;
+using Couchbase.Protocol;
 
 
 namespace MD.CloudConnect.CouchBaseProvider
@@ -70,6 +71,38 @@ namespace MD.CloudConnect.CouchBaseProvider
             return GetViewResult("all", limit: limit, startKeyDocId: startKeyDocId, allowStale: allowStale);
         }
 
+        public virtual List<T> GetDocs(List<string> keys)
+        {
+            List<T> docs = new List<T>();
+
+            ConcurrentDictionary<string, IGetOperationResult<string>> dict = new ConcurrentDictionary<string, IGetOperationResult<string>>();
+            Parallel.ForEach(keys, x =>
+            {
+                dict.TryAdd(x, _cluster.ExecuteGet<string>(x));
+            });
+
+            // re-order data before deserialize
+            Dictionary<string, IGetOperationResult<string>> listOperations = (from d in dict orderby d.Key select d).ToDictionary(x => x.Key, x => x.Value);
+
+            foreach (var item in listOperations)
+            {
+                if (item.Value.Exception != null)
+                    throw item.Value.Exception;
+                if (item.Value.StatusCode != 1)
+                {
+                    if (item.Value.Value == null)
+                    {
+                        return new List<T>();
+                    }
+                    var model = JsonConvert.DeserializeObject<T>(item.Value.Value);
+                    model.Id = item.Key;
+                    docs.Add(model);
+                }
+            }
+
+            return docs;
+        }
+
         public virtual List<T> GetViewResult(string viewName, object[] startKey = null, object[] endKey = null,
                                                 int limit = 0, bool allowStale = false, bool inclusiveEnd = false, string startKeyDocId = null)
         {
@@ -114,14 +147,16 @@ namespace MD.CloudConnect.CouchBaseProvider
             {
                 if (item.Value.Exception != null)
                     throw item.Value.Exception;
-
-                if (item.Value.Value == null)
+                if (item.Value.StatusCode != 1)
                 {
-                    return new List<T>();
+                    if (item.Value.Value == null)
+                    {
+                        return new List<T>();
+                    }
+                    var model = JsonConvert.DeserializeObject<T>(item.Value.Value);
+                    model.Id = item.Key;
+                    docs.Add(model);
                 }
-                var model = JsonConvert.DeserializeObject<T>(item.Value.Value);
-                model.Id = item.Key;
-                docs.Add(model);
             }
 
             return docs;
@@ -151,13 +186,42 @@ namespace MD.CloudConnect.CouchBaseProvider
             return result.Success;
         }
 
-        public virtual bool Save(T value, PersistTo persistTo = PersistTo.Zero)
+        public virtual bool SaveWithExpireTime(T value, int ttl, PersistTo persistTo = PersistTo.Zero)
         {
             var key = string.IsNullOrEmpty(value.Id) ? BuildKey(value) : value.Id;
-            var result = _cluster.ExecuteStore(StoreMode.Set, key, serializeAndIgnoreId(value), persistTo);
+            var result = _cluster.ExecuteStore(StoreMode.Set, key, serializeAndIgnoreId(value), new TimeSpan(0, 0, ttl), persistTo);
             if (result.Exception != null)
                 throw result.Exception;
             return result.Success;
+        }
+
+        public virtual bool Save(T value, PersistTo persistTo = PersistTo.Zero)
+        {
+            var key = string.IsNullOrEmpty(value.Id) ? BuildKey(value) : value.Id;
+            IStoreOperationResult result = _cluster.ExecuteStore(StoreMode.Set, key, serializeAndIgnoreId(value), persistTo);
+            if (result.Exception != null)
+                throw result.Exception;
+            return result.Success;
+        }
+
+        public virtual bool SaveWithCas(T value, ulong cas, PersistTo persistTo = PersistTo.Zero)
+        {
+            var key = string.IsNullOrEmpty(value.Id) ? BuildKey(value) : value.Id;
+            IStoreOperationResult casResult = _cluster.ExecuteCas(StoreMode.Set, key, serializeAndIgnoreId(value), cas);
+            if (casResult.Exception != null)
+                throw casResult.Exception;
+            return casResult.Success;
+        }
+
+        public virtual void UnLock(T value)
+        {
+            if (value.CasID > 0)
+                _cluster.ExecuteUnlock(value.Id, value.CasID);
+        }
+
+        public virtual bool KeyExist(string key)
+        {
+            return _cluster.KeyExists(key);
         }
 
         public virtual T Get(string key)
@@ -173,6 +237,27 @@ namespace MD.CloudConnect.CouchBaseProvider
 
             var model = JsonConvert.DeserializeObject<T>(result.Value);
             model.Id = key; //Id is not serialized into the JSON document on store, so need to set it before returning
+            return model;
+        }
+
+        public virtual T GetWithLock(string key, out bool locked)
+        {
+            var result = _cluster.ExecuteGetWithLock<string>(key, new TimeSpan(0, 5, 0));
+            if (result.Exception != null)
+                throw result.Exception;
+            if (result.StatusCode == (int)CouchbaseStatusCodeEnums.LockError)
+                locked = true;
+            else
+                locked = false;
+
+            if (result.Value == null)
+            {
+                return null;
+            }
+
+            var model = JsonConvert.DeserializeObject<T>(result.Value);
+            model.Id = key; //Id is not serialized into the JSON document on store, so need to set it before returning
+            model.CasID = result.Cas;
             return model;
         }
 

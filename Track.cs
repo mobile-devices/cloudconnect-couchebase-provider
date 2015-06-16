@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 
 namespace MD.CloudConnect.CouchBaseProvider
 {
-    public class Track : ModelBase
+    public class Track : ModelBase, IComparable<Track>, IEquatable<Track>
     {
         public const int NOT_REBUILD = 0;
         public const int OK_REBUILDED = 1;
@@ -81,6 +81,21 @@ namespace MD.CloudConnect.CouchBaseProvider
         public override string Type
         {
             get { return "track"; }
+        }
+
+        public int CompareTo(Track other)
+        {
+            UInt64 cloud_id_a = Convert.ToUInt64(this.CloudId);
+            UInt64 cloud_id_b = Convert.ToUInt64(other.CloudId);
+            return cloud_id_a.CompareTo(cloud_id_b);
+        }
+
+        public bool Equals(Track other)
+        {
+            UInt64 cloud_id_a = Convert.ToUInt64(this.CloudId);
+            UInt64 cloud_id_b = Convert.ToUInt64(other.CloudId);
+
+            return cloud_id_a == cloud_id_b;
         }
     }
 }

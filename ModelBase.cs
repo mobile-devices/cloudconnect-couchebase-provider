@@ -10,6 +10,7 @@ namespace MD.CloudConnect.CouchBaseProvider
     public abstract class ModelBase
     {
         public virtual string Id { get; set; }
+        public virtual ulong CasID { get; set; }
         public abstract string Type { get; }
     }
 }
